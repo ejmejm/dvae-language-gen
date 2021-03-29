@@ -1,5 +1,6 @@
 import numpy as np
-import threading
+import pyttsx3
+from subprocess import Popen
 import time
 import tkinter as tk
 from PIL import Image, ImageTk
@@ -25,6 +26,8 @@ class AILangGUI(tk.Tk):
         self.bg_color = '#1a1a1a'
         self.button_color = '#4275c7'
         self.text_size = 18
+        
+        self.speech_proc = None
         
         ### Convert image formats ###
 
@@ -97,6 +100,7 @@ class AILangGUI(tk.Tk):
             highlightthickness = 0)
         
         self.text_label = None
+        self.guess_label = None
         
         ### Place created items ###
         
@@ -126,6 +130,10 @@ class AILangGUI(tk.Tk):
         
         self.text_box_x = self.window_margin + self.text_box_x_offset + 7
         self.text_box_y = char_level_y + int(0.118 * self.char_canvas_height)
+        
+        self.guess_box_x = self.window_margin + self.text_box_x_offset + \
+                arrow_width + self.canvas_width + 2 * self.med_padding + 150
+        self.guess_box_y = char_level_y + int(0.235 * self.char_canvas_height)
 
         self.draw_explainer(None)
         self.draw_guesser()
@@ -157,7 +165,8 @@ class AILangGUI(tk.Tk):
         self.next_gen_img = ImageTk.PhotoImage(img)
         self.animate_explainer(text)
         
-    def display_next_gen_img():
+    def display_next_gen_img(self):
+        self.curr_gen_img = self.next_gen_img
         self.gen_canvas.create_image(
             self.canvas_width // 2 + 1,
             self.canvas_height // 2 + 1,
@@ -166,19 +175,49 @@ class AILangGUI(tk.Tk):
     
     def animate_explainer(self, full_text, curr_text=None, speed=20):
         delay = 1 / speed
-        if curr_text == None:
+        
+        if curr_text is None:
             curr_text = ''
         
+        if curr_text == '':
+            self.speech_proc = Popen('python speak.py "' + full_text + '"')
+        
         if curr_text == full_text:
-#             self.after(delay)
-            return
+            if self.speech_proc:
+                self.speech_proc.wait()
+            self.after(500, lambda: self.animate_guesser(['???', '!']))
+            self.after(6150, self.draw_explainer)
         else:
             curr_text = full_text[:len(curr_text)+1]
             self.draw_explainer(curr_text)
             next_func = lambda: self.animate_explainer(full_text, curr_text, speed)
             self.after(int(1000*delay), next_func)
+
+    def animate_guesser(self, full_text, curr_text=None, speed=1.5):
+        delay = 1 / speed
+        
+        if isinstance(full_text, str):
+            full_text = [full_text]
+        if isinstance(curr_text, str):
+            curr_text = [curr_text]
+        if curr_text is None or len(curr_text) == 0:
+            curr_text = ['']
+        
+        if curr_text[0] == full_text[0]:
+            # All TTS finished
+            if len(full_text) <= 1:
+                self.display_next_gen_img()
+                self.after(2000, self.draw_guesser)
+            else:
+                next_func = lambda: self.animate_guesser(full_text[1:], curr_text[1:], speed)
+                self.after(1000, next_func)
+        else:
+            curr_text[0] = full_text[0][:len(curr_text[0])+1]
+            self.draw_guesser(curr_text[0])
+            next_func = lambda: self.animate_guesser(full_text, curr_text, speed)
+            self.after(int(1000*delay), next_func)
     
-    def draw_explainer(self, text):
+    def draw_explainer(self, text=None):
         self.explain_char_canvas.delete('all')
         if self.text_label:
             self.text_label.destroy()
@@ -191,9 +230,18 @@ class AILangGUI(tk.Tk):
             self.text_label = tk.Label(self, text=text, bg='white', font=('Helvetica', self.text_size), wraplength=self.text_box_len)
             self.text_label.place(x=self.text_box_x, y=self.text_box_y)
     
-    def draw_guesser(self):
+    def draw_guesser(self, text=None):
         self.guess_char_canvas.delete('all')
+        if self.guess_label:
+            self.guess_label.destroy()
         self.guess_char_canvas.create_image(0, self.char_canvas_height, anchor='sw', image=self.guess_tk_img)
+        
+        if text is not None:
+            self.guess_char_canvas.create_image(self.text_box_x_offset, self.text_box_y_offset,
+                                                  anchor='sw', image=self.text_box_img)
+            
+            self.guess_label = tk.Label(self, text=text, bg='white', font=('Helvetica', self.text_size), wraplength=self.text_box_len)
+            self.guess_label.place(x=self.guess_box_x, y=self.guess_box_y, anchor='center')
         
 if __name__ == '__main__':
     explain_bot_img = Image.open('assets/phil_robot.png')
